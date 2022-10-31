@@ -1,0 +1,376 @@
+#!/usr/bin/env bash
+
+# default values
+if [ -z "$CRAWLER_CONFIG_LOCATION" ]; then
+    CRAWLER_CONFIG_LOCATION="$HOME/.local/cyral"
+fi
+
+# install dependences
+# docker
+
+# prep storage location
+mkdir -p "$CRAWLER_CONFIG_LOCATION"
+
+NL=$'\n'
+crawlerConfigCpFile="$CRAWLER_CONFIG_LOCATION/controlplane.env"
+cpVars="Api_Host API_GRPC_Port API_REST_Port Client_ID Client_Secret Worker_ID"
+repoVars="Name Type Database Host Port User Password"
+repoDatabaseTypes="sqlserver mysql postgresql redshift denodo snowflake oracle"
+
+
+## Menu Functions
+
+inputMenu(){
+    local options="$1"
+    local allowNull="$2"
+    local invalid
+    len=$(echo "$options" | tr ' ' '\n' | awk '{print length}' | sort -unr | head -n1)
+    while true; do
+        msg=$(echo -e "${invalid}\nSelection: ")
+        read -r -n"${len}" -p "$msg" selection
+        if [[ " $options " == *" $selection "* || ( -n "$allowNull" && -z "$selection") ]]; then
+            echo "$selection"
+            break
+        fi
+        invalid=$'\x0aInvalid Option!'
+    done
+}
+
+headerMenu(){
+    clear
+    subMsg="$1"
+    div="==============================="
+    echo "Cyral Repo Crawler Configurator"
+    echo "$div"
+    [ -n "$subMsg" ] && printf "%*s\n" $(( (${#subMsg} + ${#div}) / 2)) "$subMsg"
+    echo ""
+}
+
+mainMenu(){
+    while true; do
+        headerMenu "Main Menu"
+        echo " 1) View/Set Control Plane Configuration"
+        echo " 2) View/Set Repo Configurations"
+        echo " q) Quit"
+        case $(inputMenu "1 2 q") in
+            "1") controlPlaneMenu ;;
+            "2") repoMenu ;;
+            "q") clear; break ;;
+        esac
+    done
+    printf "\nThanks!\n"
+}
+## Control Plane management
+controlPlaneMenu(){
+    while true; do
+        headerMenu "Control Plane Configuration"
+        echo " 1) Show Configuration"
+        echo " 2) Set Configuration"
+        echo " q) Quit/Back"
+        case $(inputMenu "1 2 q") in
+            "1") showControlPlaneConfig ;;
+            "2") setControlPlaneConfig ;;
+            "q") return;;
+        esac
+    done
+}
+
+showControlPlaneConfig(){
+    headerMenu "Control Plane Configuration"
+    loadControlPlaneConfig
+    for v in $cpVars; do
+        local varMsg
+        local configVarValue
+        varMsg=$(echo "$v" | tr "_" " ")
+        if [[ "${v^^}" = *SECRET* ]]; then
+            configVarValue="*********"
+        else
+            configVarValue=$(eval "echo \"\${CYRAL_${v^^}}\"")
+        fi
+        printf "%15s: %s\n" "$varMsg" "$configVarValue"
+    done
+    read -n1 -r -p "Press any key to return"
+}
+
+setControlPlaneConfig(){
+    headerMenu "Set Control Plane"
+    loadControlPlaneConfig
+    local configContent=""
+    
+    for v in $cpVars; do
+        local varMsg
+        local configVar
+        local localVar
+        varMsg=$(echo "$v" | tr "_" " ")
+        configVar="CYRAL_${v^^}"
+        configVarValue=$(eval "echo \$$configVar")
+        if [[ "${v^^}" = *SECRET* ]]; then
+            displayValue="*********"
+        else
+            displayValue="$configVarValue"
+        fi
+
+        while true; do
+            read -r -p "${varMsg}${configVarValue:+ ($displayValue)}: " localVar
+            if [[ -n "$localVar"  ]]; then
+                eval "$configVar=$localVar"
+                configVarValue="$localVar"
+                break
+            elif [[ -z "$localVar" && -n "$configVarValue" ]]; then
+                break
+            else
+                echo "Cant be blank!"
+            fi
+        done
+        configContent+="$configVar=\"$configVarValue\"${NL}"
+    done
+    echo "$configContent" > "$crawlerConfigCpFile"
+    read -r -n1 -p "Press any key to return"
+}
+
+loadControlPlaneConfig(){
+    if [ -e "$crawlerConfigCpFile" ]; then
+        source "$crawlerConfigCpFile"
+    fi
+}
+
+## Repo Job Management
+repoMenu(){
+    while true; do
+        repoFiles=($(find "$CRAWLER_CONFIG_LOCATION" -type f -name "repo.*" -printf "%f\n" | cut -d'.' -f2))
+        headerMenu "Repo Job Configuration"
+        echo " 1) Create Repo Crawler Schedule"
+        i=1
+        for f in "${repoFiles[@]}"; do
+            ((i++))
+            echo " $i) ${f//_/ }"
+        done
+        echo " q) Quit/Back"
+        opt=$(inputMenu "q $(seq -s ' ' "$i")")
+        case $opt in
+            "1") createRepoJob ;;
+            "q") return ;;
+            *) 
+                selection="${repoFiles[(($opt-2))]}"
+                jobId="${selection// /_}"
+                repoDetailsMenu  "$jobId";;
+        esac
+    done
+}
+
+repoDetailsMenu(){
+    jobId=$1
+    source "$CRAWLER_CONFIG_LOCATION/repo.${jobId}.env"
+    while true; do
+        headerMenu "${jobId//_/ }"
+        echo " 1) Show Config"
+        echo " 2) Edit"
+        echo " 3) Delete"
+        echo " 4) Scheduling"
+        echo " q) Quit/Back"
+        case $(inputMenu "q 1 2 3 4") in
+            "1") showRepoConfig "$jobId" ;;
+            "2") editRepoConfig "$jobId" ;;
+            "3") deleteRepoConfig "$jobId"; return ;;
+            "4") scheduleMenu "$jobId" ;;
+            "q") return
+        esac
+    done
+}
+
+showRepoConfig(){
+    jobId="$1"
+    headerMenu "${jobId//_/ }"
+    for v in $repoVars; do
+        local varMsg
+        local configVarValue
+        varMsg=$(echo "$v" | tr "_" " ")
+        if [[ "${v^^}" = *PASSWORD* ]]; then
+            configVarValue="*********"
+        else
+            configVarValue=$(eval "echo \"\${REPO_${v^^}}\"")
+        fi
+        printf "%8s: %s\n" "$varMsg" "$configVarValue"
+    done
+    schedule=$(getSchedule "$jobId")
+    if [ -z "$schedule" ]; then
+        schedule="Not Set"
+    fi
+    printf "%8s: %s\n" "Schedule" "$schedule"
+    read -n1 -r -p "Press any key"
+}
+
+deleteRepoConfig(){
+    jobId="${1// /_}"
+    headerMenu "Delete ${jobId//_/ }"
+    read -n1 -r -p "Confirm Delete? (y/N)" confirm
+    if [ "${confirm,,}" = 'y' ]; then
+        rm "$CRAWLER_CONFIG_LOCATION/repo.${jobId}.env"
+        deleteSchedule "$jobId"
+    fi
+}
+
+getRepoConfig(){
+    # this will populate all the config vars for exporting/saving
+    local configContent=""
+    jobId="${1// /_}"
+    if [[ -z "$jobId" ]]; then
+        headerMenu "Create Repo Job"
+        read -r -p "Job Name: " jobId
+        envFilePath="$CRAWLER_CONFIG_LOCATION/repo.${jobId// /_}.env"
+        while [[ -e "$envFilePath" ]]; do
+            echo "Name already in use, please select another."
+            read -r -p "Job Name: " jobId
+            envFilePath="$CRAWLER_CONFIG_LOCATION/repo.${jobId// /_}.env"
+        done
+        isNew=true
+    else
+        headerMenu "Edit ${jobId//_/ }"
+    fi
+
+    # crawler variables/config file
+    echo "Repo Job Variables"
+    for v in $repoVars; do
+        local varMsg
+        local configVar
+        local localVar
+        varMsg=$(echo "$v" | tr "_" " ")
+        configVar="REPO_${v^^}"
+        configVarValue=$(eval "echo \$$configVar")
+
+        if [[ "${v^^}" = *PASSWORD* ]]; then
+            displayValue="*********"
+            isSecret="-s"
+        else
+            displayValue="$configVarValue"
+            unset isSecret
+        fi
+
+        case ${v,,} in
+            "type") 
+                i=0
+                echo "Database Type"
+                for dbType in $repoDatabaseTypes; do
+                    local hasDefault isDefault
+                    ((i++))
+                    if [ "${dbType}" = "${configVarValue}" ]; then hasDefault="true";isDefault="true"; else unset isDefault; fi
+                    echo " $i) $dbType${isDefault:+ *}"
+                done
+                selection=$(inputMenu "$(seq -s ' ' "$i")" "$hasDefault")
+                if [ -n "$selection" ]; then
+                    configVarValue=$(echo "$repoDatabaseTypes" | cut -d " " -f $((selection--)) )
+                    eval "$configVar=$configVarValue" 
+                fi
+                echo ""
+                ;;
+            *)
+                while true; do
+                    read -r $isSecret -p "${varMsg}${configVarValue:+ ($displayValue)}: " localVar
+                    if [[ -n "$localVar"  ]]; then
+                        eval "$configVar=$localVar"
+                        configVarValue="$localVar"
+                        break
+                    elif [[ -z "$localVar" && -n "$configVarValue" ]]; then
+                        break
+                    else
+                        echo "Cant be blank!"
+                    fi
+                done
+                ;;
+        esac
+        configContent+="$configVar=\"$configVarValue\"${NL}"
+    done
+    repoFilePath="$CRAWLER_CONFIG_LOCATION/repo.${jobId// /_}.env"
+    echo "$configContent" > "$repoFilePath"
+    if [ $isNew ]; then
+        echo ""
+        read -r -n1 -p "Set schedule? (Y/n): " schedule
+        if [[ -z "$schedule" || "${schedule,,}" == 'y' ]]; then
+            setScheduleMenu "$jobId"
+            return
+        fi
+    fi
+    echo ""
+    read -n1 -r -p "Press any key"
+}
+
+createRepoJob(){
+    headerMenu "Create Crawler Job"
+    for v in $repoVars; do
+        eval "unset REPO_${v^^}"
+    done
+    getRepoConfig
+}
+
+editRepoConfig(){
+    getRepoConfig "$1"
+}
+
+## Repo Cron Management
+
+scheduleMenu(){
+    jobId="${1// /_}"
+    headerMenu "${jobId//_/ } Schedule"
+    schedule=$(getSchedule "$jobId")
+    if [ -z "$schedule" ]; then
+        schedule="Not Set"
+    fi
+    echo "Current Schedule: $schedule"
+    read -r -n1 -p "Update schedule? (y/N): " update
+    if [ "${update^^}" = "Y" ]; then
+        setScheduleMenu "$jobId"
+    fi
+}
+
+setScheduleMenu(){
+    jobId="${1// /_}"
+    headerMenu "Set ${jobId//_/ } Schedule"
+    echo " 1) Daily"
+    echo " 2) Weekly"
+    echo " 3) Monthly"
+    echo " 4) Custom"
+    echo " 5) Remove Schedule"
+    echo " q) Quit/Back"
+    case $(inputMenu "q 1 2 3 4 5") in
+        "1") schedule="@daily" ;;
+        "2") schedule="@weekly" ;;
+        "3") schedule="@monthly" ;;
+        "4") echo "" 
+             read -r -p "Cron Schedule: " schedule ;;
+        "5") deleteSchedule "$jobId"; return ;;
+        "q") return
+    esac
+    setSchedule "$jobId" "$schedule"
+}
+
+setSchedule(){
+    jobId="${1// /_}"
+    schedule=$2
+    deleteSchedule "$jobId"
+    jobPath="$CRAWLER_CONFIG_LOCATION/repo.${jobId}.env"
+    crontab -l > cron_tmp
+    echo "$schedule crawler-job $jobPath > $CRAWLER_CONFIG_LOCATION/crawler-$jobId-\$(date +\"%Y%m%d%H%M\").log" >> cron_tmp
+    crontab cron_tmp
+    rm cron_tmp
+    printf "\nJob Set!\n"
+    read -n1 -r -p "Press any key"
+}
+
+getSchedule(){
+    jobId="${1// /_}"
+    entry=$(crontab -l 2>/dev/null | grep "crawler-${jobId}-\\$")
+    if [[ "$entry" =~ ^@ ]]; then
+        schedule=$(echo "$entry" | cut -d' ' -f1)
+    else
+        schedule=$(echo "$entry" | cut -d' ' -f1-5)
+    fi
+    ## returns
+    echo "$schedule"
+}
+
+deleteSchedule(){
+    jobId="${1// /_}"
+    crontab -l 2>/dev/null | grep -v "crawler-${jobId}-\\$" | crontab - 
+}
+
+mainMenu

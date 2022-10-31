@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+
+jobEnvFile=$1
+configDir=$(dirname "$jobEnvFile")
+cpEnvFile="$configDir/controlplane.env"
+
+if [ -z "$jobEnvFile" ]; then
+    echo "Unable to find job file: '$jobEnvFile'"
+    exit 1
+elif [ -z "$cpEnvFile" ]; then
+    echo "Unable to find Control Plan config file: '$cpEnvFile'"
+    exit 1
+fi
+
+dockercmd="docker run --rm --env-file \"$jobEnvFile\" --env-file \"$cpEnvFile\" busybox env"
+echo "Invoking job: $dockercmd"
+if ! sudoOutput=$(eval sudo -n "$dockercmd" 2>&1); then
+    if ! stdOutput=$(eval "$dockercmd" 2>&1); then
+        echo "FAILED to invoke crawler job!"
+        echo "Sudo Attempt: $sudoOutput"
+        echo "Standard Attempt: $stdOutput"
+    else
+        output="$stdOutput"
+    fi
+else
+output="$sudoOutput"
+fi
+echo "$output"

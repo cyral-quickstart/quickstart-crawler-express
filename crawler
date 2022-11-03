@@ -13,10 +13,10 @@ mkdir -p "$CRAWLER_CONFIG_LOCATION"
 
 NL=$'\n'
 crawlerConfigCpFile="$CRAWLER_CONFIG_LOCATION/controlplane.env"
-cpVars="Api_Host API_GRPC_Port API_REST_Port Client_ID Client_Secret Worker_ID"
-repoVars="Name Type Database Host Port User Password"
+cpVars="Api_Host API_GRPC_Port API_REST_Port Worker_ID"
+repoVars="Name Type Database Host Port"
 repoDatabaseTypes="sqlserver mysql postgresql redshift denodo snowflake oracle"
-
+envVarPrefix="REPO_CRAWLER_"
 
 ## Menu Functions
 
@@ -60,7 +60,9 @@ mainMenu(){
     done
     printf "\nThanks!\n"
 }
+
 ## Control Plane management
+
 controlPlaneMenu(){
     while true; do
         headerMenu "Control Plane Configuration"
@@ -69,7 +71,7 @@ controlPlaneMenu(){
         echo " q) Quit/Back"
         case $(inputMenu "1 2 q") in
             "1") showControlPlaneConfig ;;
-            "2") setControlPlaneConfig ;;
+            "2") getControlPlaneConfig ;;
             "q") return;;
         esac
     done
@@ -82,36 +84,40 @@ showControlPlaneConfig(){
         local varMsg
         local configVarValue
         varMsg=$(echo "$v" | tr "_" " ")
-        if [[ "${v^^}" = *SECRET* ]]; then
-            configVarValue="*********"
-        else
-            configVarValue=$(eval "echo \"\${CYRAL_${v^^}}\"")
-        fi
+        configVarValue=$(eval "echo \"\${${envVarPrefix}CYRAL_${v^^}}\"")
         printf "%15s: %s\n" "$varMsg" "$configVarValue"
     done
+    showControlPlaneAuth
     read -n1 -r -p "Press any key to return"
 }
 
-setControlPlaneConfig(){
+showControlPlaneAuth(){
+    arn=$(eval "echo \"\$${envVarPrefix}CYRAL_CREDS_SECRET_ARN\"")
+    if [[ -n "$arn" ]]; then
+        # user provided
+        printf "%15s: %s\n" "Secret ARN" "$arn"
+    else
+        clientId=$(eval echo "\$${envVarPrefix}CYRAL_CLIENT_ID")
+        printf "%15s: %s\n" "Client ID" "$clientId"
+        printf "%15s: %s\n" "Client Secret" "********"
+    fi
+}
+
+getControlPlaneConfig(){
     headerMenu "Set Control Plane"
     loadControlPlaneConfig
-    local configContent=""
+    configContent=""
     
     for v in $cpVars; do
         local varMsg
         local configVar
         local localVar
         varMsg=$(echo "$v" | tr "_" " ")
-        configVar="CYRAL_${v^^}"
+        configVar="${envVarPrefix}CYRAL_${v^^}"
         configVarValue=$(eval "echo \$$configVar")
-        if [[ "${v^^}" = *SECRET* ]]; then
-            displayValue="*********"
-        else
-            displayValue="$configVarValue"
-        fi
 
         while true; do
-            read -r -p "${varMsg}${configVarValue:+ ($displayValue)}: " localVar
+            read -r -p "${varMsg}${configVarValue:+ ($configVarValue)}: " localVar
             if [[ -n "$localVar"  ]]; then
                 eval "$configVar=$localVar"
                 configVarValue="$localVar"
@@ -122,10 +128,58 @@ setControlPlaneConfig(){
                 echo "Cant be blank!"
             fi
         done
-        configContent+="$configVar=\"$configVarValue\"${NL}"
+        configContent+="$configVar=${configVarValue}${NL}"
     done
+    getControlPlaneAuth
     echo "$configContent" > "$crawlerConfigCpFile"
     read -r -n1 -p "Press any key to return"
+}
+
+getControlPlaneAuth(){
+    local arn clientId clientSecret hasDefault clientDefault awsDefault
+    arn=$(eval "echo \"\$${envVarPrefix}CYRAL_CREDS_SECRET_ARN\"")
+    clientId=$(eval echo "\$${envVarPrefix}CYRAL_CLIENT_ID")
+    clientSecret=$(eval echo "\$${envVarPrefix}CYRAL_CLIENT_SECRET")
+    eval "unset ${envVarPrefix}CYRAL_CREDS_SECRET_ARN ${envVarPrefix}CYRAL_CLIENT_ID ${envVarPrefix}CYRAL_CLIENT_SECRET"
+    if [ -n "$arn" ]; then
+        hasDefault=true
+        awsDefault=true
+
+    elif [ -n "$clientId" ];then
+        hasDefault=true
+        clientDefault=true
+    fi
+    echo "Control Plane Credentials"
+    echo " 1) AWS Secret${awsDefault:+ *}"
+    echo " 2) User provided${clientDefault:+ *}"
+    
+    input=$(inputMenu "1 2" $hasDefault)
+    echo ""
+    
+    if [[ "$input" = "1" ]] || [[ -z "$input" && $awsDefault ]]; then
+        read -r -p "AWS Secret ARN${arn:+ ($arn)}: " newArn
+        echo ""
+        if [[ -n "$newArn" ]]; then
+            arn="$newArn"
+        fi
+        eval "${envVarPrefix}CYRAL_CREDS_SECRET_ARN=$arn"
+        configContent+="${envVarPrefix}CYRAL_CREDS_SECRET_ARN=${arn}${NL}"
+    elif [[ "$input" = "2" ]] || [[ -z "$input" && $clientDefault ]]; then
+        read -r -p "Client ID${clientId:+ ($clientId)}: " newClientId
+        if [ -n "$newClientId" ]; then
+            clientId="$newClientId"
+        fi
+        read -r -s -p "Client Secret${clientSecret:+ (*******)}: " newClientSecret
+        if [ -n "$newClientSecret" ]; then
+            clientSecret="$newClientSecret"
+        fi
+        echo ""
+        eval "${envVarPrefix}CYRAL_CLIENT_ID=${arn}"
+        configContent+="${envVarPrefix}CYRAL_CLIENT_ID=${clientId}${NL}"
+        eval "${envVarPrefix}CYRAL_CLIENT_SECRET=${clientSecret}"
+        configContent+="${envVarPrefix}CYRAL_CLIENT_SECRET=${clientSecret}${NL}"
+    fi
+
 }
 
 loadControlPlaneConfig(){
@@ -185,19 +239,28 @@ showRepoConfig(){
         local varMsg
         local configVarValue
         varMsg=$(echo "$v" | tr "_" " ")
-        if [[ "${v^^}" = *PASSWORD* ]]; then
-            configVarValue="*********"
-        else
-            configVarValue=$(eval "echo \"\${REPO_${v^^}}\"")
-        fi
+        configVarValue=$(eval "echo \"\${${envVarPrefix}REPO_${v^^}}\"")
         printf "%8s: %s\n" "$varMsg" "$configVarValue"
     done
+    showRepoAuth
     schedule=$(getSchedule "$jobId")
     if [ -z "$schedule" ]; then
         schedule="Not Set"
     fi
     printf "%8s: %s\n" "Schedule" "$schedule"
     read -n1 -r -p "Press any key"
+}
+
+showRepoAuth(){
+    arn=$(eval "echo \"\$${envVarPrefix}REPO_CREDS_SECRET_ARN\"")
+    if [[ -n "$arn" ]]; then
+        # user provided
+        printf "%8s: %s\n" "Secret ARN" "$arn"
+    else
+        repoUser=$(eval echo "\$${envVarPrefix}REPO_USER")
+        printf "%8s: %s\n" "User" "$repoUser"
+        printf "%8s: %s\n" "Password" "********"
+    fi
 }
 
 deleteRepoConfig(){
@@ -212,7 +275,7 @@ deleteRepoConfig(){
 
 getRepoConfig(){
     # this will populate all the config vars for exporting/saving
-    local configContent=""
+    configContent=""
     jobId="${1// /_}"
     if [[ -z "$jobId" ]]; then
         headerMenu "Create Repo Job"
@@ -235,16 +298,8 @@ getRepoConfig(){
         local configVar
         local localVar
         varMsg=$(echo "$v" | tr "_" " ")
-        configVar="REPO_${v^^}"
+        configVar="${envVarPrefix}REPO_${v^^}"
         configVarValue=$(eval "echo \$$configVar")
-
-        if [[ "${v^^}" = *PASSWORD* ]]; then
-            displayValue="*********"
-            isSecret="-s"
-        else
-            displayValue="$configVarValue"
-            unset isSecret
-        fi
 
         case ${v,,} in
             "type") 
@@ -265,7 +320,7 @@ getRepoConfig(){
                 ;;
             *)
                 while true; do
-                    read -r $isSecret -p "${varMsg}${configVarValue:+ ($displayValue)}: " localVar
+                    read -r -p "${varMsg}${configVarValue:+ ($configVarValue)}: " localVar
                     if [[ -n "$localVar"  ]]; then
                         eval "$configVar=$localVar"
                         configVarValue="$localVar"
@@ -280,6 +335,7 @@ getRepoConfig(){
         esac
         configContent+="$configVar=\"$configVarValue\"${NL}"
     done
+    getRepoAuth
     repoFilePath="$CRAWLER_CONFIG_LOCATION/repo.${jobId// /_}.env"
     echo "$configContent" > "$repoFilePath"
     if [ $isNew ]; then
@@ -292,6 +348,52 @@ getRepoConfig(){
     fi
     echo ""
     read -n1 -r -p "Press any key"
+}
+
+getRepoAuth(){
+ local arn repoUser repoPassword hasDefault clientDefault awsDefault
+    arn=$(eval "echo \"\$${envVarPrefix}REPO_CREDS_SECRET_ARN\"")
+    repoUser=$(eval echo "\$${envVarPrefix}REPO_USER")
+    repoPassword=$(eval echo "\$${envVarPrefix}REPO_PASSWORD")
+    eval "unset ${envVarPrefix}REPO_CREDS_SECRET_ARN ${envVarPrefix}REPO_USER ${envVarPrefix}REPO_PASSWORD"
+    if [ -n "$arn" ]; then
+        hasDefault=true
+        awsDefault=true
+
+    elif [ -n "$repoUser" ];then
+        hasDefault=true
+        clientDefault=true
+    fi
+    echo "Control Plane Credentials"
+    echo " 1) AWS Secret${awsDefault:+ *}"
+    echo " 2) User provided${clientDefault:+ *}"
+    
+    input=$(inputMenu "1 2" $hasDefault)
+    echo ""
+    
+    if [[ "$input" = "1" ]] || [[ -z "$input" && $awsDefault ]]; then
+        read -r -p "AWS Secret ARN${arn:+ ($arn)}: " newArn
+        echo ""
+        if [[ -n "$newArn" ]]; then
+            arn="$newArn"
+        fi
+        eval "${envVarPrefix}REPO_CREDS_SECRET_ARN=$arn"
+        configContent+="${envVarPrefix}REPO_CREDS_SECRET_ARN=${arn}${NL}"
+    elif [[ "$input" = "2" ]] || [[ -z "$input" && $clientDefault ]]; then
+        read -r -p "User${repoUser:+ ($repoUser)}: " newRepoUser
+        if [ -n "$newRepoUser" ]; then
+            repoUser="$newRepoUser"
+        fi
+        read -r -s -p "Password${repoPassword:+ (*******)}: " newRepoPassword
+        if [ -n "$newRepoPassword" ]; then
+            repoPassword="$newRepoPassword"
+        fi
+        echo ""
+        eval "${envVarPrefix}REPO_USER=${repoUser}"
+        configContent+="${envVarPrefix}REPO_USER=${repoUser}${NL}"
+        eval "${envVarPrefix}REPO_PASSWORD=${repoPassword}"
+        configContent+="${envVarPrefix}REPO_PASSWORD=${repoPassword}${NL}"
+    fi
 }
 
 createRepoJob(){

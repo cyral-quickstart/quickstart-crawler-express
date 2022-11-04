@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 
 jobEnvFile=$1
+
+if [[ "${2^^}" == "DRYRUN" ]]; then
+    dryRun=$2
+fi
+
 configDir=$(dirname "$jobEnvFile")
 cpEnvFile="$configDir/controlplane.env"
 
@@ -12,7 +17,7 @@ elif [ -z "$cpEnvFile" ]; then
     exit 1
 fi
 
-dockercmd="docker run --rm --env-file \"$jobEnvFile\" --env-file \"$cpEnvFile\" us-docker.pkg.dev/cyralinc/cyral-repo-crawler/cyral-repo-crawler:v0.3.0"
+dockercmd="docker run --rm ${dryRun:+ -e REPO_CRAWLER_DRY_RUN=true} --env-file \"$jobEnvFile\" --env-file \"$cpEnvFile\" us-docker.pkg.dev/cyralinc/cyral-repo-crawler/cyral-repo-crawler:v0.3.0"
 echo "Invoking job: $dockercmd"
 if ! sudoOutput=$(eval sudo -n "$dockercmd" 2>&1); then
     if ! stdOutput=$(eval "$dockercmd" 2>&1); then

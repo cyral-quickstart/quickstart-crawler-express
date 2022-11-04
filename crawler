@@ -226,13 +226,15 @@ repoDetailsMenu(){
         echo " 3) Delete"
         echo " 4) Scheduling"
         echo " 5) Run Job Now"
+        echo " 6) Dry Run"
         echo " q) Quit/Back"
-        case $(inputMenu "q 1 2 3 4 5") in
+        case $(inputMenu "q 1 2 3 4 5 6") in
             "1") showRepoConfig "$jobId" ;;
             "2") editRepoConfig "$jobId" ;;
             "3") deleteRepoConfig "$jobId"; return ;;
             "4") scheduleMenu "$jobId" ;;
             "5") runRepoConfig "$jobId" ;; 
+            "6") runRepoConfig "$jobId" "dryrun" ;;
             "q") return
         esac
     done
@@ -339,7 +341,7 @@ getRepoConfig(){
                 done
                 ;;
         esac
-        configContent+="$configVar=\"$configVarValue\"${NL}"
+        configContent+="$configVar=$configVarValue${NL}"
     done
     getRepoAuth
     repoFilePath="$CRAWLER_CONFIG_LOCATION/repo.${jobId// /_}.env"
@@ -416,9 +418,10 @@ editRepoConfig(){
 
 runRepoConfig(){
     jobId="${1// /_}"
+    dryRun="$2"
     jobPath="$CRAWLER_CONFIG_LOCATION/repo.${jobId}.env"
     headerMenu "Running ${jobId//_/ }"
-    crawler-job "$jobPath"
+    crawler-job "$jobPath" "$dryRun"
     read -n1 -r -p "Press any key"
 }
 

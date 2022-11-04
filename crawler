@@ -451,7 +451,7 @@ setSchedule(){
     deleteSchedule "$jobId"
     jobPath="$CRAWLER_CONFIG_LOCATION/repo.${jobId}.env"
     crontab -l > cron_tmp
-    echo "$schedule crawler-job $jobPath > $CRAWLER_CONFIG_LOCATION/crawler-$jobId-\$(date +\"%Y%m%d%H%M\").log" >> cron_tmp
+    echo "$schedule crawler-job $jobPath > $CRAWLER_CONFIG_LOCATION/crawler-$jobId.log" >> cron_tmp
     crontab cron_tmp
     rm cron_tmp
     printf "\nJob Set!\n"

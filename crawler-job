@@ -12,7 +12,7 @@ elif [ -z "$cpEnvFile" ]; then
     exit 1
 fi
 
-dockercmd="docker run --rm --env-file \"$jobEnvFile\" --env-file \"$cpEnvFile\" busybox env"
+dockercmd="docker run --rm --env-file \"$jobEnvFile\" --env-file \"$cpEnvFile\" us-docker.pkg.dev/cyralinc/cyral-repo-crawler/cyral-repo-crawler:v0.3.0"
 echo "Invoking job: $dockercmd"
 if ! sudoOutput=$(eval sudo -n "$dockercmd" 2>&1); then
     if ! stdOutput=$(eval "$dockercmd" 2>&1); then

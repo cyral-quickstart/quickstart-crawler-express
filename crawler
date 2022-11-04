@@ -116,6 +116,10 @@ getControlPlaneConfig(){
         configVar="${envVarPrefix}CYRAL_${v^^}"
         configVarValue=$(eval "echo \$$configVar")
 
+        if [[ "$configVar^^" == *"PORT"* && -z "$configVarValue" ]]; then
+            configVarValue="443"
+        fi
+
         while true; do
             read -r -p "${varMsg}${configVarValue:+ ($configVarValue)}: " localVar
             if [[ -n "$localVar"  ]]; then
@@ -221,12 +225,14 @@ repoDetailsMenu(){
         echo " 2) Edit"
         echo " 3) Delete"
         echo " 4) Scheduling"
+        echo " 5) Run Job Now"
         echo " q) Quit/Back"
-        case $(inputMenu "q 1 2 3 4") in
+        case $(inputMenu "q 1 2 3 4 5") in
             "1") showRepoConfig "$jobId" ;;
             "2") editRepoConfig "$jobId" ;;
             "3") deleteRepoConfig "$jobId"; return ;;
             "4") scheduleMenu "$jobId" ;;
+            "5") runRepoConfig "$jobId" ;; 
             "q") return
         esac
     done
@@ -406,6 +412,14 @@ createRepoJob(){
 
 editRepoConfig(){
     getRepoConfig "$1"
+}
+
+runRepoConfig(){
+    jobId="${1// /_}"
+    jobPath="$CRAWLER_CONFIG_LOCATION/repo.${jobId}.env"
+    headerMenu "Running ${jobId//_/ }"
+    crawler-job "$jobPath"
+    read -n1 -r -p "Press any key"
 }
 
 ## Repo Cron Management

@@ -14,7 +14,7 @@ mkdir -p "$CRAWLER_CONFIG_LOCATION"
 NL=$'\n'
 crawlerConfigCpFile="$CRAWLER_CONFIG_LOCATION/controlplane.env"
 cpVars="Api_Host API_GRPC_Port API_REST_Port Worker_ID"
-repoVars="Name Type Database Host Port"
+repoVars="Name Type Host Port"
 repoDatabaseTypes="sqlserver mysql postgresql redshift denodo snowflake oracle"
 envVarPrefix="REPO_CRAWLER_"
 
@@ -34,6 +34,10 @@ inputMenu(){
         fi
         invalid=$'\x0aInvalid Option!'
     done
+}
+
+PAK(){
+    read -n1 -r -p "Press any key"
 }
 
 headerMenu(){
@@ -59,6 +63,19 @@ mainMenu(){
         esac
     done
     printf "\nThanks!\n"
+}
+
+deleteConfig(){
+    # used to cleanup both Repo and Db configs
+    repoId="$1"
+    db="$2"
+    jobId=$(getJobId "$repoId" "$db")
+    headerMenu "Delete ${repoId}${db:+ - $db}"
+    read -n1 -r -p "Confirm Delete? (y/N)" confirm
+    if [ "${confirm,,}" = 'y' ]; then
+        rm "$CRAWLER_CONFIG_LOCATION/${jobId}.env"
+        deleteSchedule "$repoId" "$db"
+    fi
 }
 
 ## Control Plane management
@@ -206,43 +223,41 @@ repoMenu(){
         echo " q) Quit/Back"
         opt=$(inputMenu "q $(seq -s ' ' "$i")")
         case $opt in
-            "1") createRepoJob ;;
+            "1") addRepo ;;
             "q") return ;;
             *) 
                 selection="${repoFiles[(($opt-2))]}"
-                jobId="${selection// /_}"
-                repoDetailsMenu  "$jobId";;
+                repoId="${selection// /_}"
+                repoDetailsMenu  "$repoId";;
         esac
     done
 }
 
 repoDetailsMenu(){
-    jobId=$1
-    source "$CRAWLER_CONFIG_LOCATION/repo.${jobId}.env"
+    repoId="$1"
+    source "$CRAWLER_CONFIG_LOCATION/repo.${repoId}.env"
     while true; do
-        headerMenu "${jobId//_/ }"
+        headerMenu "$repoId"
         echo " 1) Show Config"
         echo " 2) Edit"
         echo " 3) Delete"
-        echo " 4) Scheduling"
-        echo " 5) Run Job Now"
-        echo " 6) Dry Run"
+        echo " 4) Database Discovery"
+        echo " 5) Account Discovery"
         echo " q) Quit/Back"
-        case $(inputMenu "q 1 2 3 4 5 6") in
-            "1") showRepoConfig "$jobId" ;;
-            "2") editRepoConfig "$jobId" ;;
-            "3") deleteRepoConfig "$jobId"; return ;;
-            "4") scheduleMenu "$jobId" ;;
-            "5") runRepoConfig "$jobId" ;; 
-            "6") runRepoConfig "$jobId" "dryrun" ;;
+        case $(inputMenu "q 1 2 3 4 5") in
+            "1") showRepoConfig "$repoId" ;;
+            "2") editRepoConfig "$repoId" ;;
+            "3") deleteConfig "$repoId"; return ;;
+            "4") ddMenu "$repoId" ;;
+            "5") adMenu "$repoId" ;; 
             "q") return
         esac
     done
 }
 
 showRepoConfig(){
-    jobId="$1"
-    headerMenu "${jobId//_/ }"
+    repoId="$1"
+    headerMenu "$repoId"
     for v in $repoVars; do
         local varMsg
         local configVarValue
@@ -251,12 +266,12 @@ showRepoConfig(){
         printf "%8s: %s\n" "$varMsg" "$configVarValue"
     done
     showRepoAuth
-    schedule=$(getSchedule "$jobId")
+    schedule=$(getSchedule "$repoId")
     if [ -z "$schedule" ]; then
         schedule="Not Set"
     fi
     printf "%8s: %s\n" "Schedule" "$schedule"
-    read -n1 -r -p "Press any key"
+    PAK
 }
 
 showRepoAuth(){
@@ -271,36 +286,17 @@ showRepoAuth(){
     fi
 }
 
-deleteRepoConfig(){
-    jobId="${1// /_}"
-    headerMenu "Delete ${jobId//_/ }"
-    read -n1 -r -p "Confirm Delete? (y/N)" confirm
-    if [ "${confirm,,}" = 'y' ]; then
-        rm "$CRAWLER_CONFIG_LOCATION/repo.${jobId}.env"
-        deleteSchedule "$jobId"
-    fi
-}
-
 getRepoConfig(){
     # this will populate all the config vars for exporting/saving
     configContent=""
-    jobId="${1// /_}"
-    if [[ -z "$jobId" ]]; then
+    repoId="${1}"
+    if [[ -z "$repoId" ]]; then
         headerMenu "Create Repo Job"
-        read -r -p "Job Name: " jobId
-        envFilePath="$CRAWLER_CONFIG_LOCATION/repo.${jobId// /_}.env"
-        while [[ -e "$envFilePath" ]]; do
-            echo "Name already in use, please select another."
-            read -r -p "Job Name: " jobId
-            envFilePath="$CRAWLER_CONFIG_LOCATION/repo.${jobId// /_}.env"
-        done
-        isNew=true
     else
-        headerMenu "Edit ${jobId//_/ }"
+        headerMenu "Edit ${repoId}"
     fi
 
     # crawler variables/config file
-    echo "Repo Job Variables"
     for v in $repoVars; do
         local varMsg
         local configVar
@@ -324,12 +320,41 @@ getRepoConfig(){
                     configVarValue=$(echo "$repoDatabaseTypes" | cut -d " " -f $((selection--)) )
                     eval "$configVar=$configVarValue" 
                 fi
+                if [[ "${configVarValue,,}" == "oracle" ]]; then
+                    # Oracle requires a session name
+                    currentSessionName=$(echo "$REPO_CRAWLER_REPO_ADVANCED" | cut -d'"' -f 6)
+                    echo ""
+                    read -r -p "Session Name${currentSessionName:+ ($currentSessionName)}: " newSessionName
+                    if [[ -n "$newSessionName" ]]; then
+                        advCfg="${envVarPrefix}REPO_ADVANCED={\"oracle\":{\"service-name\":\"$newSessionName\"}}${NL}"
+                        eval "$advCfg"
+                        configContent+="$advCfg"
+                    fi
+                fi
+
                 echo ""
                 ;;
             *)
                 while true; do
                     read -r -p "${varMsg}${configVarValue:+ ($configVarValue)}: " localVar
                     if [[ -n "$localVar"  ]]; then
+                        # Value provided, validate
+                        if [[ "$localVar" == *" "* ]]; then
+                            # no inputs support spaces
+                            echo "Spaces arent allow"
+                            continue
+                        fi
+                        if [[ "${v,,}" == "name" ]]; then
+                            if [[ -n "$configVarValue" && "$configVarValue" != "$localVar" ]]; then
+                                # if the name is a new value, make sure a file doesnt already exis so we dont overwrite a config
+                                envFilePath="$CRAWLER_CONFIG_LOCATION/repo.${localVar}.env"
+                                if [[ -e "$envFilePath" ]]; then
+                                    echo "Name already in use, please select another."
+                                    continue
+                                fi 
+                            fi
+                            repoId="$localVar"
+                        fi
                         eval "$configVar=$localVar"
                         configVarValue="$localVar"
                         break
@@ -344,22 +369,22 @@ getRepoConfig(){
         configContent+="$configVar=$configVarValue${NL}"
     done
     getRepoAuth
-    repoFilePath="$CRAWLER_CONFIG_LOCATION/repo.${jobId// /_}.env"
+    repoFilePath="$CRAWLER_CONFIG_LOCATION/repo.${repoId}.env"
     echo "$configContent" > "$repoFilePath"
     if [ $isNew ]; then
         echo ""
         read -r -n1 -p "Set schedule? (Y/n): " schedule
         if [[ -z "$schedule" || "${schedule,,}" == 'y' ]]; then
-            setScheduleMenu "$jobId"
+            setScheduleMenu "$repoId"
             return
         fi
     fi
     echo ""
-    read -n1 -r -p "Press any key"
+    PAK
 }
 
 getRepoAuth(){
- local arn repoUser repoPassword hasDefault clientDefault awsDefault
+    local arn repoUser repoPassword hasDefault clientDefault awsDefault
     arn=$(eval "echo \"\$${envVarPrefix}REPO_CREDS_SECRET_ARN\"")
     repoUser=$(eval echo "\$${envVarPrefix}REPO_USER")
     repoPassword=$(eval echo "\$${envVarPrefix}REPO_PASSWORD")
@@ -404,10 +429,10 @@ getRepoAuth(){
     fi
 }
 
-createRepoJob(){
-    headerMenu "Create Crawler Job"
+addRepo(){
+    unset "${envVarPrefix}REPO_CREDS_SECRET_ARN" "${envVarPrefix}REPO_USER" "${envVarPrefix}REPO_PASSWORD"
     for v in $repoVars; do
-        eval "unset REPO_${v^^}"
+        eval "unset ${envVarPrefix}REPO_${v^^}"
     done
     getRepoConfig
 }
@@ -416,34 +441,132 @@ editRepoConfig(){
     getRepoConfig "$1"
 }
 
-runRepoConfig(){
-    jobId="${1// /_}"
+runConfig(){
+    jobId="$1"
     dryRun="$2"
-    jobPath="$CRAWLER_CONFIG_LOCATION/repo.${jobId}.env"
-    headerMenu "Running ${jobId//_/ }"
+    jobPath="$CRAWLER_CONFIG_LOCATION/${jobId}.env"
+    headerMenu "Running job $jobId"
     crawler-job "$jobPath" "$dryRun"
-    read -n1 -r -p "Press any key"
+    PAK
 }
 
-## Repo Cron Management
+# Database Discovery
+ddMenu(){
+    repoId="$1"
+    headerMenu "Databases - $repoId"
+    while true; do
+    # Its possible the Repo name has a . in it, but not the DB, so rev it
+    dbFiles=($(find "$CRAWLER_CONFIG_LOCATION" -type f -name "db.$repoId.*" -printf "%f\n" | rev | cut -d'.' -f2 | rev))
+    headerMenu "$repoId - Database Jobs"
+    echo " 1) Add Database"
+    i=1
+    for f in "${dbFiles[@]}"; do
+        ((i++))
+        echo " $i) ${f//_/ }"
+    done
+    echo " q) Quit/Back"
+    opt=$(inputMenu "q $(seq -s ' ' "$i")")
+    case $opt in
+        "1") addDd "$1" ;;
+        "q") return ;;
+        *) 
+            db="${dbFiles[(($opt-2))]}"
+            ddDetailsMenu "$repoId" "$db";;
+    esac
+done
+}
+ddDetailsMenu(){
+    repoId="$1"
+    db="$2"
+    source "$CRAWLER_CONFIG_LOCATION/db.${repoId}.${db}.env"
+    while true; do
+        headerMenu "${repoId} - ${db}"
+        echo " 1) Show Schedule"
+        echo " 2) Set Schedule"
+        echo " 3) Delete"
+        echo " 4) Dry Run"
+        echo " 5) Run Now"
+        echo " q) Quit/Back"
+        case $(inputMenu "q 1 2 3 4 5") in
+            "1") scheduleMenu "$repoId" "$db" ;;
+            "2") setScheduleMenu "$repoId" "$db" ;;
+            "3") deleteConfig "$repoId" "$db"; return ;;
+            "4") runConfig "db.$repoId.$db" "dryrun" ;;
+            "5") runConfig "db.$repoId.$db" ;; 
+            "q") return
+        esac
+    done
+}
+addDd(){
+    repoId="$1"
+    headerMenu "$repoId - New Database"
+    local invalid=""
+    while true; do
+        msg=$(echo -e "${invalid}\nDatabase Name: ")
+        read -r -p "$msg" db
+        jobId=$(getJobId "$repoId" "$db")
+        filePath="$CRAWLER_CONFIG_LOCATION/$jobId.env"
+        if [[ ! -e "$filePath" ]]; then
+            echo "${envVarPrefix}REPO_DATABASE=$db" > "$filePath"
+            ddDetailsMenu "$repoId" "$db"
+            return
+        fi
+        invalid=$'\x0aName alread exists, please enter a unique value.'
+    done
+    
+}
+# Local Account Discovery
+
+adMenu(){
+    repoId=$1
+    while true; do
+        headerMenu "Account Discovery - $repoId"
+        echo " 1) Show Schedule"
+        echo " 2) Set Schedule"
+        echo " 3) Dry Run"
+        echo " 4) Run Now"
+        echo " q) Quit/Back"
+        case $(inputMenu "q 1 2 3 4") in
+            "1") scheduleMenu "$repoId" ;;
+            "2") setScheduleMenu "$repoId" ;;
+            "3") runConfig "repo.$repoId" "dryrun" ;; 
+            "4") runConfig "repo.$repoId" ;;
+            "q") return
+        esac
+    done
+}
+## Cron Management
+
+getJobId(){
+    ## Returns
+    repoId="$1"
+    db="$2"
+    if [[ -n "$db" ]]; then
+        echo "db.${repoId}.${db}"
+    else
+        echo "repo.${repoId}"
+    fi
+}
 
 scheduleMenu(){
-    jobId="${1// /_}"
-    headerMenu "${jobId//_/ } Schedule"
-    schedule=$(getSchedule "$jobId")
+    repoId="$1"
+    db="$2"
+    headerMenu "${repoId}${db:+ - $db} Schedule"
+    schedule=$(getSchedule "$repoId" "$db")
     if [ -z "$schedule" ]; then
         schedule="Not Set"
     fi
     echo "Current Schedule: $schedule"
     read -r -n1 -p "Update schedule? (y/N): " update
     if [ "${update^^}" = "Y" ]; then
-        setScheduleMenu "$jobId"
+        setScheduleMenu "$repoId" "$db"
     fi
 }
 
 setScheduleMenu(){
-    jobId="${1// /_}"
-    headerMenu "Set ${jobId//_/ } Schedule"
+    repoId="$1"
+    db="$2"
+    headerMenu "Set $repoId${db:+ - $db} Schedule"
     echo " 1) Daily"
     echo " 2) Weekly"
     echo " 3) Monthly"
@@ -456,40 +579,45 @@ setScheduleMenu(){
         "3") schedule="@monthly" ;;
         "4") echo "" 
              read -r -p "Cron Schedule: " schedule ;;
-        "5") deleteSchedule "$jobId"; return ;;
+        "5") deleteSchedule "$repoId" "$db"; return ;;
         "q") return
     esac
-    setSchedule "$jobId" "$schedule"
+    setSchedule "$schedule" "$repoId" "$db"
 }
 
 setSchedule(){
-    jobId="${1// /_}"
-    schedule=$2
-    deleteSchedule "$jobId"
-    jobPath="$CRAWLER_CONFIG_LOCATION/repo.${jobId}.env"
+    schedule="$1"
+    repoId="$2"
+    db="$3"
+    deleteSchedule "$repoId" "$db"
+    jobId=$(getJobId "$repoId" "$db")
     crontab -l > cron_tmp
-    echo "$schedule crawler-job $jobPath > $CRAWLER_CONFIG_LOCATION/crawler-$jobId.log" >> cron_tmp
+    echo "$schedule crawler-job \"$CRAWLER_CONFIG_LOCATION/$jobId.env\" > \"$CRAWLER_CONFIG_LOCATION/$jobId.log\"" >> cron_tmp
     crontab cron_tmp
     rm cron_tmp
     printf "\nJob Set!\n"
-    read -n1 -r -p "Press any key"
+    PAK
 }
 
 getSchedule(){
-    jobId="${1// /_}"
-    entry=$(crontab -l 2>/dev/null | grep "crawler-${jobId}-\\$")
+    ## Returns
+    repoId="$1"
+    db="$2"
+    jobId=$(getJobId "$repoId" "$db")
+    entry=$(crontab -l 2>/dev/null | grep "$jobId.log\"\$")
     if [[ "$entry" =~ ^@ ]]; then
         schedule=$(echo "$entry" | cut -d' ' -f1)
     else
         schedule=$(echo "$entry" | cut -d' ' -f1-5)
     fi
-    ## returns
     echo "$schedule"
 }
 
 deleteSchedule(){
-    jobId="${1// /_}"
-    crontab -l 2>/dev/null | grep -v "crawler-${jobId}-\\$" | crontab - 
+    repoId="$1"
+    db="$2"
+    jobId=$(getJobId "$repoId" "$db")
+    crontab -l 2>/dev/null | grep -v "$jobId.log\"\$" | crontab - 
 }
 
 mainMenu

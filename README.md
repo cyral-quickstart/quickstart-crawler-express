@@ -4,17 +4,18 @@ This tool allows you to schedule repo crawler jobs quickly on any standard linux
 
 Additional info can be found [here](https://cyral.com/docs/v3.0/policy/repo-crawler/install/)
 
-# Install
+## Install
 
 You'll need to clone this git repository (or download/extract) on to a basic linux system and run the `install.sh` script.
 
-```
+``` bash
 git clone https://github.com/cyral-quickstart/quickstart-crawler-poc.git
 cd quickstart-crawler-poc
 sudo ./install.sh
 ```
 
-# Configuration
+## Configuration
+
 Configuration can be done in a few simple steps
 
 1) Login to your Control Plane
@@ -31,9 +32,25 @@ Configuration can be done in a few simple steps
 1) SSH to the Instance you installed the Crawler on
     1) Run `crawler`
     1) Configure the control plane information
-    1) Configure the repo job
+    1) Configure the repo
+    1) Configure Data / Account jobs
 
 Once the Job has successfuly run you can see if the job successfully reporting by going to `Data Repos > Your Repo > Data Map > Auto Updates`
 
-# Logs
+## Logs
+
 Logs will only be stored for the last job run and will be located at `~/.local/cyral` and will be in the format of `crawler-<jobname>.log`
+
+## Concepts
+
+Control Plane Configuration - This is the info required to communicate the results back to the control plane.
+Repo Configuration - This is related to the Data Repo configuration on the control plane and where the results will be pushed
+Database Discovery Jobs - This is configuration related to specific databases that live on the Data Repo for Data Classification
+Local Account Discovery Jobs - This will scan the Data Repo for any defined local accounts and will populate them in the Control Plane under that Data Repo
+
+### Config Files
+
+All config files will by default end up at `~/.local/cyral`
+`controlplane.env` Contains all of the control plane connection info
+`repo.<repo name>.env` Contains the Repo configuration
+`db.<repo name>.<db name>.env` Contains the DB name for data classification discovery 

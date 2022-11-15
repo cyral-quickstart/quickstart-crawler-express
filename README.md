@@ -55,4 +55,4 @@ Local Account Discovery Jobs - This will scan the Data Repo for any defined loca
 All config files will by default end up at `~/.local/cyral`
 `controlplane.env` Contains all of the control plane connection info
 `repo.<repo name>.env` Contains the Repo configuration
-`db.<repo name>.<db name>.env` Contains the DB name for data classification discovery 
+`db.<repo name>.<db name>.env` Contains the DB name for data classification discovery

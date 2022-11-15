@@ -41,7 +41,7 @@ Once the Job has successfully run you can see if the job successfully reporting 
 
 ## Logs
 
-Logs will only be stored for the last job run and will be located at `~/.local/cyral` and will be in the format of `crawler-<jobname>.log`
+Logs will only be stored for the last job run and will be located at `~/.local/cyral` and will be in the format of `<jobname>.log`
 
 ## Concepts
 

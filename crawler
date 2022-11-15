@@ -257,7 +257,7 @@ repoDetailsMenu(){
 
 showRepoConfig(){
     repoId="$1"
-    headerMenu "${repoId//_/ }"
+    headerMenu "$repoId"
     for v in $repoVars; do
         local varMsg
         local configVarValue
@@ -369,7 +369,7 @@ getRepoConfig(){
         configContent+="$configVar=$configVarValue${NL}"
     done
     getRepoAuth
-    repoFilePath="$CRAWLER_CONFIG_LOCATION/repo.${repoId// /_}.env"
+    repoFilePath="$CRAWLER_CONFIG_LOCATION/repo.${repoId}.env"
     echo "$configContent" > "$repoFilePath"
     if [ $isNew ]; then
         echo ""

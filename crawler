@@ -322,14 +322,16 @@ getRepoConfig(){
                 fi
                 if [[ "${configVarValue,,}" == "oracle" ]]; then
                     # Oracle requires a session name
-                    currentSessionName=$(echo "$REPO_CRAWLER_REPO_ADVANCED" | cut -d'"' -f 6)
+                    sessionName=$(echo "$REPO_CRAWLER_REPO_ADVANCED" | cut -d: -f3 | cut -d'}' -f1)
                     echo ""
-                    read -r -p "Session Name${currentSessionName:+ ($currentSessionName)}: " newSessionName
+                    read -r -p "Session Name${sessionName:+ ($sessionName)}: " newSessionName
                     if [[ -n "$newSessionName" ]]; then
-                        advCfg="${envVarPrefix}REPO_ADVANCED={\"oracle\":{\"service-name\":\"$newSessionName\"}}${NL}"
-                        eval "$advCfg"
-                        configContent+="$advCfg"
+                        sessionName="$newSessionName"
                     fi
+                    # The quotes get stripped on source, so we need to reset it even if it hasnt changed
+                    advCfg="${envVarPrefix}REPO_ADVANCED={\"oracle\":{\"service-name\":\"$sessionName\"}}${NL}"
+                    eval "$advCfg"
+                    configContent+="$advCfg"
                 fi
 
                 echo ""

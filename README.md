@@ -1,4 +1,4 @@
-# Quickstart Repo Crawler POC
+# Quickstart Repo Crawler Express
 
 This tool allows you to schedule repo crawler jobs quickly on any standard linux system
 
@@ -9,8 +9,8 @@ Additional info can be found [here](https://cyral.com/docs/v3.0/policy/repo-craw
 You'll need to clone this git repository (or download/extract) on to a basic linux system and run the `install.sh` script.
 
 ``` bash
-git clone https://github.com/cyral-quickstart/quickstart-crawler-poc.git
-cd quickstart-crawler-poc
+git clone https://github.com/cyral-quickstart/quickstart-crawler-express.git
+cd quickstart-crawler-express
 sudo ./install.sh
 ```
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-
+projectRoot=$(realpath "$(dirname "$0")")
 installs=""
 dependencies=("docker")
 
@@ -52,8 +52,8 @@ if [ -n "$installs" ]; then
     printf ".\n\n"
 fi
 if [[ ! -e /usr/bin/crawler ]]; then
-    ln -s "${PWD}/crawler" /usr/bin/crawler
+    ln -s "${projectRoot}/crawler" /usr/bin/crawler
 fi
 if [[ ! -e /usr/bin/crawler-job ]]; then
-    ln -s "${PWD}/crawler-job" /usr/bin/crawler-job
+    ln -s "${projectRoot}/crawler-job" /usr/bin/crawler-job
 fi

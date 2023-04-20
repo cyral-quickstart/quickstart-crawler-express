@@ -32,7 +32,7 @@ fi
 
 image="us-docker.pkg.dev/cyralinc/cyral-repo-crawler/cyral-repo-crawler:v0.5.3"
 
-dockercmd="docker run --rm ${dryRun:+ -e REPO_CRAWLER_DRY_RUN=true} ${additionalEnv} ${jobTypeParam} --env-file \"$jobEnvFile\" --env-file \"$cpEnvFile\" $image"
+dockercmd="docker run --rm -v cyral_crawler:/db ${dryRun:+ -e REPO_CRAWLER_DRY_RUN=true} ${additionalEnv} ${jobTypeParam} --env-file \"$jobEnvFile\" --env-file \"$cpEnvFile\" $image --cache-type sqlite --cache-sqlite-db-file-name /db/cache.db"
 if ! sudoOutput=$(eval sudo -n "$dockercmd" 2>&1); then
     if ! stdOutput=$(eval "$dockercmd" 2>&1); then
         echo "FAILED to invoke crawler job!"

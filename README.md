@@ -45,14 +45,14 @@ Logs will only be stored for the last job run and will be located at `~/.local/c
 
 ## Concepts
 
-Control Plane Configuration - This is the info required to communicate the results back to the control plane.
-Repo Configuration - This is related to the Data Repo configuration on the control plane and where the results will be pushed
-Database Discovery Jobs - This is configuration related to specific databases that live on the Data Repo for Data Classification
-Local Account Discovery Jobs - This will scan the Data Repo for any defined local accounts and will populate them in the Control Plane under that Data Repo
+* Control Plane Configuration - This is the info required to communicate the results back to the control plane.
+* Repo Configuration - This is related to the Data Repo configuration on the control plane and where the results will be pushed
+* Database Discovery Jobs - This is configuration related to specific databases that live on the Data Repo for Data Classification
+* Local Account Discovery Jobs - This will scan the Data Repo for any defined local accounts and will populate them in the Control Plane under that Data Repo
 
 ### Config Files
 
-All config files will by default end up at `~/.local/cyral`
-`controlplane.env` Contains all of the control plane connection info
-`repo.<repo name>.env` Contains the Repo configuration
-`db.<repo name>.<db name>.env` Contains the DB name for data classification discovery
+* All config files will by default end up at `~/.local/cyral`
+* `controlplane.env` Contains all of the control plane connection info
+* `repo.<repo name>.env` Contains the Repo configuration
+* `db.<repo name>.<db name>.env` Contains the DB name for data classification discovery

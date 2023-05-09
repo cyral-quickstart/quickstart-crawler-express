@@ -13,6 +13,7 @@ mkdir -p "$CRAWLER_CONFIG_LOCATION"
 
 NL=$'\n'
 crawlerConfigCpFile="$CRAWLER_CONFIG_LOCATION/controlplane.env"
+repoConfigFileName="repo.config.env"
 cpVars="Api_Host API_GRPC_Port API_REST_Port Worker_ID"
 repoVars="Name Type Host Port"
 repoDatabaseTypes="sqlserver mysql postgresql redshift denodo snowflake oracle"
@@ -212,7 +213,7 @@ loadControlPlaneConfig(){
 ## Repo Job Management
 repoMenu(){
     while true; do
-        repoFiles=($(find "$CRAWLER_CONFIG_LOCATION" -type f -name "repo.*" -printf "%f\n" | cut -d'.' -f2))
+        repoFiles=($(find "$CRAWLER_CONFIG_LOCATION" -mindepth 1 -type d -printf "%f\n"))
         headerMenu "Repo Job Configuration"
         echo " 1) Create Repo Crawler Schedule"
         i=1
@@ -235,7 +236,7 @@ repoMenu(){
 
 repoDetailsMenu(){
     repoId="$1"
-    source "$CRAWLER_CONFIG_LOCATION/repo.${repoId}.env"
+    source "$CRAWLER_CONFIG_LOCATION/${repoId}/$repoConfigFileName"
     while true; do
         headerMenu "$repoId"
         echo " 1) Show Config"
@@ -371,7 +372,8 @@ getRepoConfig(){
         configContent+="$configVar=$configVarValue${NL}"
     done
     getRepoAuth
-    repoFilePath="$CRAWLER_CONFIG_LOCATION/repo.${repoId}.env"
+    repoFilePath="$CRAWLER_CONFIG_LOCATION/${repoId}/$repoConfigFileName"
+    mkdir -p "$(dirname "$repoFilePath")"
     echo "$configContent" > "$repoFilePath"
     if [ $isNew ]; then
         echo ""
@@ -446,7 +448,7 @@ editRepoConfig(){
 runConfig(){
     jobId="$1"
     dryRun="$2"
-    jobPath="$CRAWLER_CONFIG_LOCATION/${jobId}.env"
+    jobPath="$CRAWLER_CONFIG_LOCATION/${jobId}"
     headerMenu "Running job $jobId"
     crawler-job "$jobPath" "$dryRun"
     PAK
@@ -457,30 +459,32 @@ ddMenu(){
     repoId="$1"
     headerMenu "Databases - $repoId"
     while true; do
-    # Its possible the Repo name has a . in it, but not the DB, so rev it
-    dbFiles=($(find "$CRAWLER_CONFIG_LOCATION" -type f -name "db.$repoId.*" -printf "%f\n" | rev | cut -d'.' -f2 | rev))
-    headerMenu "$repoId - Database Jobs"
-    echo " 1) Add Database"
-    i=1
-    for f in "${dbFiles[@]}"; do
-        ((i++))
-        echo " $i) ${f//_/ }"
+        # Its possible the Repo name has a . in it, but not the DB, so rev it
+        dbFiles=($(find "$CRAWLER_CONFIG_LOCATION/${repoId}" -type f -iname "*.env" ! -iname "$repoConfigFileName" -printf "%f\n" | rev | cut -d . -f2- | rev))
+        headerMenu "$repoId - Database Jobs"
+        echo " 1) Add Database"
+        i=1
+        for f in "${dbFiles[@]}"; do
+            ((i++))
+            echo " $i) ${f//_/ }"
+        done
+        echo " q) Quit/Back"
+        opt=$(inputMenu "q $(seq -s ' ' "$i")")
+        case $opt in
+            "1") addDd "$1" ;;
+            "q") return ;;
+            *) 
+                db="${dbFiles[(($opt-2))]}"
+                ddDetailsMenu "$repoId" "$db";;
+        esac
     done
-    echo " q) Quit/Back"
-    opt=$(inputMenu "q $(seq -s ' ' "$i")")
-    case $opt in
-        "1") addDd "$1" ;;
-        "q") return ;;
-        *) 
-            db="${dbFiles[(($opt-2))]}"
-            ddDetailsMenu "$repoId" "$db";;
-    esac
-done
 }
+
 ddDetailsMenu(){
     repoId="$1"
     db="$2"
-    source "$CRAWLER_CONFIG_LOCATION/db.${repoId}.${db}.env"
+    jobId=$(getJobId "$1" "$2")
+    source "$CRAWLER_CONFIG_LOCATION/${jobId}.env"
     while true; do
         headerMenu "${repoId} - ${db}"
         echo " 1) Show Schedule"
@@ -493,12 +497,13 @@ ddDetailsMenu(){
             "1") scheduleMenu "$repoId" "$db" ;;
             "2") setScheduleMenu "$repoId" "$db" ;;
             "3") deleteConfig "$repoId" "$db"; return ;;
-            "4") runConfig "db.$repoId.$db" "dryrun" ;;
-            "5") runConfig "db.$repoId.$db" ;; 
+            "4") runConfig "${jobId}.env" "dryrun" ;;
+            "5") runConfig "${jobId}.env" ;; 
             "q") return
         esac
     done
 }
+
 addDd(){
     repoId="$1"
     headerMenu "$repoId - New Database"
@@ -531,8 +536,8 @@ adMenu(){
         case $(inputMenu "q 1 2 3 4") in
             "1") scheduleMenu "$repoId" ;;
             "2") setScheduleMenu "$repoId" ;;
-            "3") runConfig "repo.$repoId" "dryrun" ;; 
-            "4") runConfig "repo.$repoId" ;;
+            "3") runConfig "$repoId" "dryrun" ;; 
+            "4") runConfig "$repoId" ;;
             "q") return
         esac
     done
@@ -544,9 +549,9 @@ getJobId(){
     repoId="$1"
     db="$2"
     if [[ -n "$db" ]]; then
-        echo "db.${repoId}.${db}"
+        echo "${repoId}/${db}"
     else
-        echo "repo.${repoId}"
+        echo "${repoId}"
     fi
 }
 

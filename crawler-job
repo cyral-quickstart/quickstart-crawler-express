@@ -1,38 +1,41 @@
 #!/usr/bin/env bash
-
+CRAWLER_VERSION="v0.8.3"
+CRAWLER_IMAGE="us-docker.pkg.dev/cyralinc/cyral-repo-crawler/cyral-repo-crawler"
 jobEnvFile=$1
 additionalEnv=""
 if [[ "${2^^}" == "DRYRUN" ]]; then
     dryRun=$2
 fi
 
-configDir=$(dirname "$jobEnvFile")
-fileName=$(basename "$jobEnvFile")
-if [[ "$fileName" == "db."* ]]; then
-    #DB file is sent, requires Repo file as well
-    repoName=$(echo "$fileName" | cut -d. -f 2- | rev | cut -d. -f 3- | rev)
-    repoFile="$configDir/repo.${repoName}.env"
-    additionalEnv="--env-file \"$repoFile\""
-    jobTypeParam=""
-else
+if [ -d "$jobEnvFile" ]; then # directory is repo only (account discovery)
+    configDir=$(dirname "$jobEnvFile")
+    repoFile="$jobEnvFile/repo.config.env"
     jobTypeParam="-e REPO_CRAWLER_ACCOUNT_DISCOVERY=true -e REPO_CRAWLER_DATA_CLASSIFICATION=false -e REPO_CRAWLER_REPO_DATABASE=none"
+else # otherwise its a file and thats databse discovery
+    dbFile=$jobEnvFile
+    repoFolder=$(dirname "$jobEnvFile")
+    repoFile="$repoFolder/repo.config.env"
+    configDir=$(dirname "$repoFolder")
+    jobTypeParam=""
 fi
 
 cpEnvFile="$configDir/controlplane.env"
 
-if [ ! -r "$jobEnvFile" ]; then
-    echo "Unable to find job file: '$jobEnvFile'"
+envParams="--env-file \"$cpEnvFile\" --env-file \"$repoFile\"${dbFile:+ --env-file "$dbFile"}"
+
+if [ ! -r "$repoFile" ]; then
+    echo "Unable to find repo file: '$repoFile'"
     exit 1
-elif [[ -n "$repoFile" && ! -r "$repoFile" ]]; then
-    echo "unable to access  repo file for data discovery: '$repoFile'"
+elif [[ -n "$dbFile" && ! -r "$dbFile" ]]; then
+    echo "unable to access  database file: '$dbFile'"
 elif [ -z "$cpEnvFile" ]; then
     echo "Unable to find Control Plan config file: '$cpEnvFile'"
     exit 1
 fi
 
-image="us-docker.pkg.dev/cyralinc/cyral-repo-crawler/cyral-repo-crawler:v0.5.3"
+image="${CRAWLER_IMAGE}:${CRAWLER_VERSION}"
 
-dockercmd="docker run --rm -v cyral_crawler:/db ${dryRun:+ -e REPO_CRAWLER_DRY_RUN=true} ${additionalEnv} ${jobTypeParam} --env-file \"$jobEnvFile\" --env-file \"$cpEnvFile\" $image --cache-type sqlite --cache-sqlite-db-file-name /db/cache.db"
+dockercmd="docker run --rm -v cyral_crawler:/db ${dryRun:+ -e REPO_CRAWLER_DRY_RUN=true} ${LOG_LEVEL:+ -e REPO_CRAWLER_LOG_LEVEL=$LOG_LEVEL} ${jobTypeParam} $envParams $image --cache-type sqlite --cache-sqlite-db-file-name /db/cache.db"
 if ! sudoOutput=$(eval sudo -n "$dockercmd" 2>&1); then
     if ! stdOutput=$(eval "$dockercmd" 2>&1); then
         echo "FAILED to invoke crawler job!"

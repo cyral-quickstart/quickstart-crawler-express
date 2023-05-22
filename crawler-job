@@ -2,7 +2,6 @@
 CRAWLER_VERSION="v0.8.3"
 CRAWLER_IMAGE="us-docker.pkg.dev/cyralinc/cyral-repo-crawler/cyral-repo-crawler"
 jobEnvFile=$1
-additionalEnv=""
 if [[ "${2^^}" == "DRYRUN" ]]; then
     dryRun=$2
 fi
@@ -35,7 +34,7 @@ fi
 
 image="${CRAWLER_IMAGE}:${CRAWLER_VERSION}"
 
-dockercmd="docker run --rm -v cyral_crawler:/db ${dryRun:+ -e REPO_CRAWLER_DRY_RUN=true} ${LOG_LEVEL:+ -e REPO_CRAWLER_LOG_LEVEL=$LOG_LEVEL} ${jobTypeParam} $envParams $image --cache-type sqlite --cache-sqlite-db-file-name /db/cache.db"
+dockercmd="docker run --rm --network=${CRAWLER_NETWORK_MODE:-host} -v cyral_crawler:/db ${dryRun:+ -e REPO_CRAWLER_DRY_RUN=true} ${CRAWLER_LOG_LEVEL:+ -e REPO_CRAWLER_LOG_LEVEL=$CRAWLER_LOG_LEVEL} ${jobTypeParam} $envParams $image --cache-type sqlite --cache-sqlite-db-file-name /db/cache.db"
 if ! sudoOutput=$(eval sudo -n "$dockercmd" 2>&1); then
     if ! stdOutput=$(eval "$dockercmd" 2>&1); then
         echo "FAILED to invoke crawler job!"

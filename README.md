@@ -41,11 +41,11 @@ Once the Job has successfully run you can see if the job successfully reporting 
 
 ## Concepts
 
-Control Plane Configuration - This is the info required to communicate the results back to the control plane.
-Repo Configuration - This is related to the Data Repo configuration on the control plane and where the results will be pushed
-Database Discovery Jobs - This is configuration related to specific databases that live on the Data Repo for Data Classification
-Local Account Discovery Jobs - This will scan the Data Repo for any defined local accounts and will populate them in the Control Plane under that Data Repo
-Worker ID - A unique id to track which crawler ran a job.
+* Control Plane Configuration - This is the info required to communicate the results back to the control plane.
+* Repo Configuration - This is related to the Data Repo configuration on the control plane and where the results will be pushed
+* Database Discovery Jobs - This is configuration related to specific databases that live on the Data Repo for Data Classification
+* Local Account Discovery Jobs - This will scan the Data Repo for any defined local accounts and will populate them in the Control Plane under that Data Repo
+* Worker ID - A unique id to track which crawler ran a job.
 
 ### Config Files
 

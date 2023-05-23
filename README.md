@@ -2,7 +2,7 @@
 
 This tool allows you to schedule repo crawler jobs quickly on any standard linux system
 
-Additional info can be found [here](https://cyral.com/docs/v3.0/policy/repo-crawler/install/)
+Additional info can be found [here](https://cyral.com/docs/v4.6/manage-repositories/repo-crawler)
 
 ## Install
 
@@ -30,7 +30,7 @@ Configuration can be done in a few simple steps
             * Repo Crawler
         1) Save the produced ID/Secret
     1) Setup a Data Repo
-        1) If you haven't already, [add a Data Repo](https://cyral.com/docs/manage-repositories/repo-track)
+        1) If you haven't already, [add a Data Repo](https://cyral.com/docs/v4.6/manage-repositories/repo-track)
 1) SSH to the Instance you installed the Crawler on
     1) Run `crawler`
     1) Configure the control plane information
@@ -50,13 +50,16 @@ Once the Job has successfully run you can see if the job successfully reporting 
 ### Config Files
 
 All config files will by default end up at `~/.local/cyral`
-`controlplane.env` Contains all of the control plane connection info
-`<repo name>/repo.config.env` directory contains the Repo configuration
-`<repo name>/<db name>.env` Contains the DB name for data classification discovery
+|File | Description|
+|---|---|
+|`controlplane.env` | Contains all of the control plane connection info|
+|`<repo name>/repo.config.env` | directory contains the Repo configuration|
+|`<repo name>/<db name>.env` | Contains the DB name for data classification discovery|
 
 ### Advanced Configurations
 
 There are a few environment variables that can be used for on demand runs to help with diagnosing errors or modifying how the crawler runs.
-
-| CRAWLER_LOG_LEVEL | This can be set to `trace` to increase the logging level, this defaults to `info` |
-| CRAWLER_NETWORK_MODE | The can be used to control the network mode for the crawler container. Default to `host` |
+|Variable | Description|
+|---|---|
+| CRAWLER_LOG_LEVEL | This can be set to `trace` to increase the logging level. Default is `info` |
+| CRAWLER_NETWORK_MODE | The can be used to control the network mode for the crawler container. Default is `host` |

@@ -68,13 +68,18 @@ mainMenu(){
 
 deleteConfig(){
     # used to cleanup both Repo and Db configs
-    repoId="$1"
-    db="$2"
+    local repoId="$1"
+    local db="$2"
+    local jobId
     jobId=$(getJobId "$repoId" "$db")
     headerMenu "Delete ${repoId}${db:+ - $db}"
     read -n1 -r -p "Confirm Delete? (y/N)" confirm
     if [ "${confirm,,}" = 'y' ]; then
-        rm "$CRAWLER_CONFIG_LOCATION/${jobId}.env"
+        if ! result=$(rm -rf "${CRAWLER_CONFIG_LOCATION:?}/${jobId}${db:+.env}" 2>&1); then
+            printf "\n\nFailed to delete!\nError: %s\n\n" "$result"
+            PAK
+            return
+        fi
         deleteSchedule "$repoId" "$db"
     fi
 }
@@ -110,6 +115,7 @@ showControlPlaneConfig(){
 }
 
 showControlPlaneAuth(){
+    local arn
     arn=$(eval "echo \"\$${envVarPrefix}CYRAL_CREDS_SECRET_ARN\"")
     if [[ -n "$arn" ]]; then
         # user provided
@@ -206,6 +212,7 @@ getControlPlaneAuth(){
 
 loadControlPlaneConfig(){
     if [ -e "$crawlerConfigCpFile" ]; then
+        # shellcheck source=/dev/null
         source "$crawlerConfigCpFile"
     fi
 }
@@ -213,9 +220,13 @@ loadControlPlaneConfig(){
 ## Repo Job Management
 repoMenu(){
     while true; do
-        repoFiles=($(find "$CRAWLER_CONFIG_LOCATION" -mindepth 1 -type d -printf "%f\n"))
+        mapfile -t repoFiles < <(find "$CRAWLER_CONFIG_LOCATION" -mindepth 1 -type d -printf "%f\n")
+        if [ ${#repoFiles[@]} -eq 0 ]; then
+            addRepo
+            continue
+        fi
         headerMenu "Repo Job Configuration"
-        echo " 1) Create Repo Crawler Schedule"
+        echo " 1) Create Repo Crawler Job"
         i=1
         for f in "${repoFiles[@]}"; do
             ((i++))
@@ -235,7 +246,8 @@ repoMenu(){
 }
 
 repoDetailsMenu(){
-    repoId="$1"
+    local repoId="$1"
+    # shellcheck source=/dev/null
     source "$CRAWLER_CONFIG_LOCATION/${repoId}/$repoConfigFileName"
     while true; do
         headerMenu "$repoId"
@@ -247,7 +259,7 @@ repoDetailsMenu(){
         echo " q) Quit/Back"
         case $(inputMenu "q 1 2 3 4 5") in
             "1") showRepoConfig "$repoId" ;;
-            "2") editRepoConfig "$repoId" ;;
+            "2") getRepoConfig "$repoId" ;;
             "3") deleteConfig "$repoId"; return ;;
             "4") ddMenu "$repoId" ;;
             "5") adMenu "$repoId" ;; 
@@ -257,40 +269,45 @@ repoDetailsMenu(){
 }
 
 showRepoConfig(){
-    repoId="$1"
+    local repoId="$1"
     headerMenu "$repoId"
     for v in $repoVars; do
         local varMsg
         local configVarValue
         varMsg=$(echo "$v" | tr "_" " ")
         configVarValue=$(eval "echo \"\${${envVarPrefix}REPO_${v^^}}\"")
-        printf "%8s: %s\n" "$varMsg" "$configVarValue"
+        printf "%10s: %s\n" "$varMsg" "$configVarValue"
     done
+    case ${REPO_CRAWLER_REPO_TYPE,,} in
+        "oracle") showOracle ;;
+        "snowflake") showSnowflake ;;
+    esac
     showRepoAuth
     schedule=$(getSchedule "$repoId")
     if [ -z "$schedule" ]; then
         schedule="Not Set"
     fi
-    printf "%8s: %s\n" "Schedule" "$schedule"
+    printf "%10s: %s\n" "Schedule" "$schedule"
     PAK
 }
 
 showRepoAuth(){
+    local arn
     arn=$(eval "echo \"\$${envVarPrefix}REPO_CREDS_SECRET_ARN\"")
     if [[ -n "$arn" ]]; then
         # user provided
-        printf "%8s: %s\n" "Secret ARN" "$arn"
+        printf "%10s: %s\n" "Secret ARN" "$arn"
     else
         repoUser=$(eval echo "\$${envVarPrefix}REPO_USER")
-        printf "%8s: %s\n" "User" "$repoUser"
-        printf "%8s: %s\n" "Password" "********"
+        printf "%10s: %s\n" "User" "$repoUser"
+        printf "%10s: %s\n" "Password" "********"
     fi
 }
 
 getRepoConfig(){
     # this will populate all the config vars for exporting/saving
     configContent=""
-    repoId="${1}"
+    local repoId="${1}"
     if [[ -z "$repoId" ]]; then
         headerMenu "Create Repo Job"
     else
@@ -321,20 +338,6 @@ getRepoConfig(){
                     configVarValue=$(echo "$repoDatabaseTypes" | cut -d " " -f $((selection--)) )
                     eval "$configVar=$configVarValue" 
                 fi
-                if [[ "${configVarValue,,}" == "oracle" ]]; then
-                    # Oracle requires a session name
-                    sessionName=$(echo "$REPO_CRAWLER_REPO_ADVANCED" | cut -d: -f3 | cut -d'}' -f1)
-                    echo ""
-                    read -r -p "Session Name${sessionName:+ ($sessionName)}: " newSessionName
-                    if [[ -n "$newSessionName" ]]; then
-                        sessionName="$newSessionName"
-                    fi
-                    # The quotes get stripped on source, so we need to reset it even if it hasnt changed
-                    advCfg="${envVarPrefix}REPO_ADVANCED={\"oracle\":{\"service-name\":\"$sessionName\"}}${NL}"
-                    eval "$advCfg"
-                    configContent+="$advCfg"
-                fi
-
                 echo ""
                 ;;
             *)
@@ -344,7 +347,7 @@ getRepoConfig(){
                         # Value provided, validate
                         if [[ "$localVar" == *" "* ]]; then
                             # no inputs support spaces
-                            echo "Spaces arent allow"
+                            echo "Spaces are not allow"
                             continue
                         fi
                         if [[ "${v,,}" == "name" ]]; then
@@ -371,18 +374,17 @@ getRepoConfig(){
         esac
         configContent+="$configVar=$configVarValue${NL}"
     done
+    # Custom prompts for repo specific options
+    case ${REPO_CRAWLER_REPO_TYPE,,} in
+        "oracle")
+            getOracle;;
+        "snowflake")
+            getSnowflake;;
+    esac
     getRepoAuth
     repoFilePath="$CRAWLER_CONFIG_LOCATION/${repoId}/$repoConfigFileName"
     mkdir -p "$(dirname "$repoFilePath")"
     echo "$configContent" > "$repoFilePath"
-    if [ $isNew ]; then
-        echo ""
-        read -r -n1 -p "Set schedule? (Y/n): " schedule
-        if [[ -z "$schedule" || "${schedule,,}" == 'y' ]]; then
-            setScheduleMenu "$repoId"
-            return
-        fi
-    fi
     echo ""
     PAK
 }
@@ -401,7 +403,7 @@ getRepoAuth(){
         hasDefault=true
         clientDefault=true
     fi
-    echo "Control Plane Credentials"
+    echo "Repo Credentials"
     echo " 1) AWS Secret${awsDefault:+ *}"
     echo " 2) User provided${clientDefault:+ *}"
     
@@ -438,14 +440,12 @@ addRepo(){
     for v in $repoVars; do
         eval "unset ${envVarPrefix}REPO_${v^^}"
     done
+    eval "unset ${envVarPrefix}REPO_ADVANCED"
     getRepoConfig
 }
 
-editRepoConfig(){
-    getRepoConfig "$1"
-}
-
 runConfig(){
+    local jobId dryRun jobPath
     jobId="$1"
     dryRun="$2"
     jobPath="$CRAWLER_CONFIG_LOCATION/${jobId}"
@@ -454,13 +454,79 @@ runConfig(){
     PAK
 }
 
+# repo specific settings
+
+getOracle(){
+    # Oracle requires a session name using $REPO_CRAWLER_REPO_ADVANCED -> oracle -> service-name
+    local sessionName
+    sessionName=$(eval "echo \$${envVarPrefix}REPO_ADVANCED" | sed -n 's/.*service-name:\([^,}]*\).*/\1/p')
+    echo ""
+    read -r -p "Session Name${sessionName:+ ($sessionName)}: " newSessionName
+    if [[ -n "$newSessionName" ]]; then
+        sessionName="$newSessionName"
+    fi
+    # The quotes get stripped on source, so we need to reset it even if it hasnt changed
+    advCfg="${envVarPrefix}REPO_ADVANCED={\"oracle\":{\"service-name\":\"$sessionName\"}}${NL}"
+    eval "$advCfg"
+    configContent+="$advCfg"
+}
+
+showOracle(){
+    local sessionName
+    sessionName=$(eval "echo \$${envVarPrefix}REPO_ADVANCED" | sed -n 's/.*service-name:\([^,}]*\).*/\1/p')
+    printf "%10s: %s\n" "Session Name" "$sessionName"
+}
+
+getSnowflake(){
+    local account role warehouse advCfg
+    advCfg=$(eval "echo \$${envVarPrefix}REPO_ADVANCED")
+    if [ -n "$advCfg" ]; then
+        account=$(echo "$advCfg" | sed -n 's/.*account:\([^,}]*\).*/\1/p')
+        role=$(echo "$advCfg" | sed -n 's/.*role:\([^,}]*\).*/\1/p')
+        warehouse=$(echo "$advCfg" | sed -n 's/.*warehouse:\([^,}]*\).*/\1/p')
+    fi
+    echo ""
+    read -r -p "Account${account:+ ($account)}: " newAccount
+    if [[ -n "$newAccount" ]]; then
+        account="$newAccount"
+    fi
+    read -r -p "Role${role:+ ($role)}: " newRole
+    if [[ -n "$newRole" ]]; then
+        role="$newRole"
+    fi
+    read -r -p "Warehouse${warehouse:+ ($warehouse)}: " newWarehouse
+    if [[ -n "$newWarehouse" ]]; then
+        warehouse="$newWarehouse"
+    fi
+
+    advCfg="${envVarPrefix}REPO_ADVANCED={\"snowflake\":{\"account\":\"$account\",\"role\":\"$role\",\"warehouse\":\"$warehouse\"}}${NL}"
+    eval "$advCfg"
+    configContent+="$advCfg"
+
+}
+
+showSnowflake(){
+    local account role warehouse advCfg
+    advCfg=$(eval "echo \$${envVarPrefix}REPO_ADVANCED")
+    account=$(echo "$advCfg" | sed -n 's/.*account:\([^,}]*\).*/\1/p')
+    role=$(echo "$advCfg" | sed -n 's/.*role:\([^,}]*\).*/\1/p')
+    warehouse=$(echo "$advCfg" | sed -n 's/.*warehouse:\([^,}]*\).*/\1/p')
+
+    printf "%10s: %s\n" "Account" "$account"
+    printf "%10s: %s\n" "Role" "$role"
+    printf "%10s: %s\n" "Warehouse" "$warehouse"
+}
+
 # Database Discovery
 ddMenu(){
-    repoId="$1"
-    headerMenu "Databases - $repoId"
+    local repoId="$1"
     while true; do
         # Its possible the Repo name has a . in it, but not the DB, so rev it
-        dbFiles=($(find "$CRAWLER_CONFIG_LOCATION/${repoId}" -type f -iname "*.env" ! -iname "$repoConfigFileName" -printf "%f\n" | rev | cut -d . -f2- | rev))
+        mapfile -t dbFiles < <(find "$CRAWLER_CONFIG_LOCATION/${repoId}" -type f -iname "*.env" ! -iname "$repoConfigFileName" -printf "%f\n" | rev | cut -d . -f2- | rev)
+        if [ ${#dbFiles[@]} -eq 0 ]; then
+            addDd "$repoId"
+            continue
+        fi
         headerMenu "$repoId - Database Jobs"
         echo " 1) Add Database"
         i=1
@@ -481,9 +547,11 @@ ddMenu(){
 }
 
 ddDetailsMenu(){
-    repoId="$1"
-    db="$2"
+    local repoId="$1"
+    local db="$2"
+    local jobId
     jobId=$(getJobId "$1" "$2")
+    # shellcheck source=/dev/null
     source "$CRAWLER_CONFIG_LOCATION/${jobId}.env"
     while true; do
         headerMenu "${repoId} - ${db}"
@@ -505,9 +573,9 @@ ddDetailsMenu(){
 }
 
 addDd(){
-    repoId="$1"
-    headerMenu "$repoId - New Database"
+    local repoId="$1"
     local invalid=""
+    headerMenu "$repoId - New Database"
     while true; do
         msg=$(echo -e "${invalid}\nDatabase Name: ")
         read -r -p "$msg" db
@@ -525,7 +593,7 @@ addDd(){
 # Local Account Discovery
 
 adMenu(){
-    repoId=$1
+    local repoId=$1
     while true; do
         headerMenu "Account Discovery - $repoId"
         echo " 1) Show Schedule"
@@ -546,8 +614,8 @@ adMenu(){
 
 getJobId(){
     ## Returns
-    repoId="$1"
-    db="$2"
+    local repoId="$1"
+    local db="$2"
     if [[ -n "$db" ]]; then
         echo "${repoId}/${db}"
     else
@@ -556,8 +624,8 @@ getJobId(){
 }
 
 scheduleMenu(){
-    repoId="$1"
-    db="$2"
+    local repoId="$1"
+    local db="$2"
     headerMenu "${repoId}${db:+ - $db} Schedule"
     schedule=$(getSchedule "$repoId" "$db")
     if [ -z "$schedule" ]; then
@@ -571,8 +639,9 @@ scheduleMenu(){
 }
 
 setScheduleMenu(){
-    repoId="$1"
-    db="$2"
+    local repoId="$1"
+    local db="$2"
+    local schedule
     headerMenu "Set $repoId${db:+ - $db} Schedule"
     echo " 1) Daily"
     echo " 2) Weekly"
@@ -593,9 +662,10 @@ setScheduleMenu(){
 }
 
 setSchedule(){
-    schedule="$1"
-    repoId="$2"
-    db="$3"
+    local schedule="$1"
+    local repoId="$2"
+    local db="$3"
+    local jobId schedule
     deleteSchedule "$repoId" "$db"
     jobId=$(getJobId "$repoId" "$db")
     crontab -l > cron_tmp
@@ -608,8 +678,9 @@ setSchedule(){
 
 getSchedule(){
     ## Returns
-    repoId="$1"
-    db="$2"
+    local jobId schedule entry
+    local repoId="$1"
+    local db="$2"
     jobId=$(getJobId "$repoId" "$db")
     entry=$(crontab -l 2>/dev/null | grep "$jobId.log\"\$")
     if [[ "$entry" =~ ^@ ]]; then
@@ -621,8 +692,9 @@ getSchedule(){
 }
 
 deleteSchedule(){
-    repoId="$1"
-    db="$2"
+    local repoId="$1"
+    local db="$2"
+    local jobId
     jobId=$(getJobId "$repoId" "$db")
     crontab -l 2>/dev/null | grep -v "$jobId.log\"\$" | crontab - 
 }

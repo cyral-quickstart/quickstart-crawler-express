@@ -39,20 +39,24 @@ Configuration can be done in a few simple steps
 
 Once the Job has successfully run you can see if the job successfully reporting by going to `Data Repos > Your Repo > Data Map > Auto Updates`
 
-## Logs
-
-Logs will only be stored for the last job run and will be located at `~/.local/cyral` and will be in the format of `<jobname>.log`
-
 ## Concepts
 
 * Control Plane Configuration - This is the info required to communicate the results back to the control plane.
 * Repo Configuration - This is related to the Data Repo configuration on the control plane and where the results will be pushed
 * Database Discovery Jobs - This is configuration related to specific databases that live on the Data Repo for Data Classification
 * Local Account Discovery Jobs - This will scan the Data Repo for any defined local accounts and will populate them in the Control Plane under that Data Repo
+* Worker ID - A unique id to track which crawler ran a job.
 
 ### Config Files
 
-* All config files will by default end up at `~/.local/cyral`
-* `controlplane.env` Contains all of the control plane connection info
-* `repo.<repo name>.env` Contains the Repo configuration
-* `db.<repo name>.<db name>.env` Contains the DB name for data classification discovery
+All config files will by default end up at `~/.local/cyral`
+`controlplane.env` Contains all of the control plane connection info
+`<repo name>/repo.config.env` directory contains the Repo configuration
+`<repo name>/<db name>.env` Contains the DB name for data classification discovery
+
+### Advanced Configurations
+
+There are a few environment variables that can be used for on demand runs to help with diagnosing errors or modifying how the crawler runs.
+
+| CRAWLER_LOG_LEVEL | This can be set to `trace` to increase the logging level, this defaults to `info` |
+| CRAWLER_NETWORK_MODE | The can be used to control the network mode for the crawler container. Default to `host` |

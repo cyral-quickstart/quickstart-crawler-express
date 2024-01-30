@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-CRAWLER_VERSION="v0.8.3"
+CRAWLER_VERSION="v0.10.5"
 CRAWLER_IMAGE="us-docker.pkg.dev/cyralinc/cyral-repo-crawler/cyral-repo-crawler"
 jobEnvFile=$1
 if [[ "${2^^}" == "DRYRUN" ]]; then

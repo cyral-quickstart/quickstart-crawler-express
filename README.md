@@ -30,7 +30,7 @@ Configuration can be done in a few simple steps
             * Repo Crawler
         1) Save the produced ID/Secret
     1) Setup a Data Repo
-        1) If you haven't already, [add a Data Repo](https://cyral.com/docs/v4.6/manage-repositories/repo-track)
+        1) If you haven't already, [add a Data Repo](https://cyral.com/docs/how-to/track-repos/)
 1) SSH to the Instance you installed the Crawler on
     1) Run `crawler`
     1) Configure the control plane information

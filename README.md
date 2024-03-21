@@ -2,7 +2,7 @@
 
 This tool allows you to schedule repo crawler jobs quickly on any standard linux system
 
-Additional info can be found [here](https://cyral.com/docs/v4.6/manage-repositories/repo-crawler)
+Additional info can be found [here](https://cyral.com/docs/data-repos/repo-crawler/)
 
 ## Install
 
